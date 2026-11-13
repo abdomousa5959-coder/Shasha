@@ -103,8 +103,11 @@ public class MainActivity extends Activity {
         }finally{c.disconnect();}
     }
     private String attr(String line,String key){
-        int p=line.indexOf(key+"=\\\""); if(p<0)return ""; int a=p+key.length()+2; int b=line.indexOf("\\\"",a); return b>a?line.substring(a,b):"";
-        return m.find()?m.group(1):"";
+        int p=line.indexOf(key+"=\"");
+        if(p<0)return "";
+        int a=p+key.length()+2;
+        int b=line.indexOf("\"",a);
+        return b>a?line.substring(a,b):"";
     }
     private String cleanName(String s){
         return s.replaceAll("(?i)\\s*S[0-9]{1,2}E[0-9]{1,3}.*$","")
