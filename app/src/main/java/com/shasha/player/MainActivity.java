@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
         }finally{c.disconnect();}
     }
     private String attr(String line,String key){
-        java.util.regex.Matcher m=java.util.regex.Pattern.compile(key+"=\\"([^\\"]*)\\"").matcher(line);
+        int p=line.indexOf(key+"=\\\""); if(p<0)return ""; int a=p+key.length()+2; int b=line.indexOf("\\\"",a); return b>a?line.substring(a,b):"";
         return m.find()?m.group(1):"";
     }
     private String cleanName(String s){
