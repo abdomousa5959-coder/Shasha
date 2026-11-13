@@ -143,21 +143,6 @@ public class MainActivity extends Activity {
         }catch(Exception e){runOnUiThread(()->status.setText("فشل الاتصال: "+friendly(e)));}});
     }
     private void loadEpisodes(Item series){
-        List<Item> episodes=new ArrayList<>();for(Item x:data)if(x.seriesName.equals(series.seriesName))episodes.add(x);
-        if(episodes.size()<=1){status.setText("لم أجد حلقات أخرى مرتبطة بهذا المسلسل في قائمة M3U.");return;}
-        data.clear();data.addAll(episodes);showingEpisodes=true;heading.setText(series.seriesName+" — الحلقات");render();status.setText("تم العثور على "+episodes.size()+" حلقة.");
-    }
-    private void render(){
-        if(list==null)return;list.removeAllViews();String q=search.getText().toString().trim().toLowerCase(Locale.ROOT);int shown=0;
-        for(Item x:new ArrayList<>(data)){if(!q.isEmpty()&&!x.name.toLowerCase(Locale.ROOT).contains(q))continue;shown++;
-            LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(dp(13),dp(9),dp(13),dp(9));card.setBackground(shape(CARD));list.addView(card,params(-2,8));
-            card.addView(text(x.name,16,FG,true));card.addView(text(x.category,12,MUTED,false));
-            boolean series=section.equals("series")&&!showingEpisodes;Button action=button(series?"عرض الحلقات":"تشغيل  ▶",true);card.addView(action,params(44,8));
-            action.setOnClickListener(v->{if(series)loadEpisodes(x);else play(x);});
-        }
-        count.setText("العناصر: "+shown);if(shown==0)list.addView(text("لا توجد نتائج.",14,MUTED,false));
-    }
-    private void loadEpisodes(Item series){
         status.setText("جارٍ تحميل حلقات "+series.name+"...");
         io.execute(()->{try{
             JSONObject info=getObject("get_series_info","series_id="+URLEncoder.encode(series.id,"UTF-8"));
