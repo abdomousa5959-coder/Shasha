@@ -139,19 +139,24 @@ public class MainActivity extends Activity {
         section=key;showingEpisodes=false;heading.setText(key.equals("live")?"القنوات المباشرة":key.equals("movies")?"الأفلام":"المسلسلات");status.setText("جارٍ تنزيل قائمة المحتوى من playlist.php...");list.removeAllViews();
         io.execute(()->{try{
             String m3u=fetchText(playlistUrl());List<Item> result=parsePlaylist(m3u,key);
-            runOnUiThread(()->{data.clear();data.addAll(result);render();status.setText("تم استيراد "+result.size()+" عنصر من قائمة السيرفر. إجمالي حجم القائمة: "+m3u.length()+" حرف.");});
+            runOnUiThread(()->{data.clear();data.addAll(result);render();status.setText("تم استيراد "+result.size()+" عنصر من قائمة السيرفر.");});
         }catch(Exception e){runOnUiThread(()->status.setText("فشل الاتصال: "+friendly(e)));}});
     }
     private void loadEpisodes(Item series){
-        status.setText("جارٍ تحميل حلقات "+series.name+"...");
-        io.execute(()->{try{
-            JSONObject info=getObject("get_series_info","series_id="+URLEncoder.encode(series.id,"UTF-8"));
-            JSONObject groups=info.optJSONObject("episodes");if(groups==null)throw new IOException("السيرفر لم يُرجع قائمة حلقات لهذا المسلسل.");
-            List<Item> episodes=new ArrayList<>();Iterator<String> seasons=groups.keys();
-            while(seasons.hasNext()){String season=seasons.next();JSONArray a=groups.optJSONArray(season);if(a==null)continue;for(int i=0;i<a.length();i++){JSONObject ep=a.getJSONObject(i);Item item=new Item(ep,"episode");item.seriesId=series.id;item.seriesName=series.name;item.season=ep.optInt("season",Integer.parseInt(season));episodes.add(item);}}
-            episodes.sort(Comparator.comparingInt((Item x)->x.season).thenComparingInt(x->x.episode));
-            runOnUiThread(()->{data.clear();data.addAll(episodes);allEpisodes.clear();allEpisodes.addAll(episodes);showingEpisodes=true;heading.setText(series.name+" — الحلقات");render();status.setText("تم تحميل "+episodes.size()+" حلقة.");});
-        }catch(Exception e){runOnUiThread(()->status.setText("فشل تحميل الحلقات: "+friendly(e)));}});
+        List<Item> episodes=new ArrayList<>();for(Item x:data)if(x.seriesName.equals(series.seriesName))episodes.add(x);
+        if(episodes.isEmpty()){status.setText("لم يتم العثور على حلقات لهذا المسلسل في القائمة.");return;}
+        data.clear();data.addAll(episodes);showingEpisodes=true;heading.setText(series.seriesName+" — الحلقات");render();status.setText("تم العثور على "+episodes.size()+" حلقة.");
+    }
+    private void render(){
+        if(list==null)return;list.removeAllViews();String q=search.getText().toString().trim().toLowerCase(Locale.ROOT);int shown=0;
+        for(Item x:new ArrayList<>(data)){
+            if(!q.isEmpty()&&!x.name.toLowerCase(Locale.ROOT).contains(q))continue;shown++;
+            LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(dp(13),dp(9),dp(13),dp(9));card.setBackground(shape(CARD));list.addView(card,params(-2,8));
+            card.addView(text(x.name,16,FG,true));card.addView(text(x.category,12,MUTED,false));
+            boolean series=section.equals("series")&&!showingEpisodes;Button action=button(series?"عرض الحلقات":"تشغيل  ▶",true);card.addView(action,params(44,8));
+            action.setOnClickListener(v->{if(series)loadEpisodes(x);else play(x);});
+        }
+        count.setText("العناصر: "+shown);if(shown==0)list.addView(text("لا توجد نتائج.",14,MUTED,false));
     }
     private void play(Item x){
         String url=x.url;
