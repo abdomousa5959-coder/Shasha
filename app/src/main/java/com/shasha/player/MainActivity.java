@@ -1,319 +1,120 @@
 package com.shasha.player;
 
 import android.app.Activity;
-import android.content.Intent;
-import android.content.SharedPreferences;
+import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
-import android.os.Bundle;
-import android.text.InputType;
-import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
+import android.widget.*;
+import android.text.TextUtils;
+import android.net.Uri;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import org.json.*;
+import java.io.*;
+import java.net.*;
+import java.util.*;
+import java.util.concurrent.*;
 
 public class MainActivity extends Activity {
-    private static final int PICK_VIDEO = 21;
-    private static final String PREFS = "shasha";
-    private static final String RECENT_KEY = "recent";
-    private static final int BACKGROUND = Color.rgb(15, 15, 29);
-    private static final int PANEL = Color.rgb(25, 25, 44);
-    private static final int ACCENT = Color.rgb(184, 167, 255);
-    private static final int TEXT = Color.rgb(243, 240, 255);
-    private static final int MUTED = Color.rgb(184, 181, 201);
-
+    private static final String BASE="https://x-men.wuaze.com";
+    private static final String USER="family_f3821697fe";
+    private static final String PASS="zqjG5wAQqyIaFjbduo3AGQgeDKq9yfWg";
+    private static final int BG=Color.rgb(10,12,16), CARD=Color.rgb(24,29,36), GREEN=Color.rgb(43,215,139), FG=Color.WHITE, MUTED=Color.rgb(165,174,184);
+    private final ExecutorService io=Executors.newSingleThreadExecutor();
+    private final List<Item> data=new ArrayList<>();
+    private LinearLayout root,list,playerBox;
+    private TextView status,count,heading;
+    private EditText search;
     private PlayerView playerView;
     private ExoPlayer player;
-    private TextView status;
-    private EditText link;
-    private LinearLayout recentList;
-    private Uri selected;
-    private long savedPosition;
-    private boolean savedPlayWhenReady = true;
-
-    @Override public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(BACKGROUND);
-        getWindow().setNavigationBarColor(BACKGROUND);
-        buildScreen();
-        if (savedInstanceState != null) {
-            String uri = savedInstanceState.getString("video_uri");
-            savedPosition = savedInstanceState.getLong("position", 0);
-            savedPlayWhenReady = savedInstanceState.getBoolean("playing", false);
-            if (uri != null) selected = Uri.parse(uri);
+    private String section="live";
+    private boolean showingEpisodes=false;
+    private static class Item {
+        String id,name,categoryId,category,url,logo;
+        Item(JSONObject j) {
+            id=j.optString("stream_id",j.optString("series_id",j.optString("id")));
+            name=j.optString("name",j.optString("title","بدون اسم"));
+            categoryId=j.optString("category_id","");
+            category=j.optString("category_name",categoryId);
+            url=j.optString("direct_source","");
+            logo=j.optString("stream_icon",j.optString("cover",""));
         }
     }
-
-    @Override protected void onStart() {
-        super.onStart();
-        if (player == null) createPlayer();
-        if (selected != null) load(selected, savedPosition, savedPlayWhenReady);
+    @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);screen();load("live");}
+    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
+    private GradientDrawable shape(int c){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(14));return d;}
+    private TextView text(String s,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);t.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);if(bold)t.setTypeface(null,Typeface.BOLD);return t;}
+    private LinearLayout.LayoutParams params(int h,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,h<0?h:dp(h));p.topMargin=dp(top);return p;}
+    private Button button(String s,boolean primary){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(primary?BG:FG);b.setTextSize(14);b.setBackground(shape(primary?GREEN:CARD));return b;}
+    private void screen(){
+        ScrollView sc=new ScrollView(this);sc.setFillViewport(true);sc.setBackgroundColor(BG);
+        root=new LinearLayout(this);root.setOrientation(1);root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);root.setPadding(dp(16),dp(20),dp(16),dp(28));sc.addView(root);setContentView(sc);
+        root.addView(text("▶  شاشة IPTV",25,GREEN,true));
+        root.addView(text("قنوات وأفلام ومسلسلات من لوحتك مباشرة",13,MUTED,false),params(30,2));
+        playerBox=new LinearLayout(this);playerBox.setOrientation(1);playerBox.setBackground(shape(CARD));playerBox.setVisibility(View.GONE);root.addView(playerBox,params(-2,16));
+        playerView=new PlayerView(this);playerView.setBackgroundColor(Color.BLACK);playerBox.addView(playerView,new LinearLayout.LayoutParams(-1,dp(220)));
+        TextView close=text("إغلاق المشغل  ✕",14,GREEN,true);close.setPadding(dp(12),dp(12),dp(12),dp(12));playerBox.addView(close);close.setOnClickListener(v->stopPlayer());
+        LinearLayout nav=new LinearLayout(this);root.addView(nav,params(50,18));
+        addTab(nav,"القنوات","live");addTab(nav,"الأفلام","movies");addTab(nav,"المسلسلات","series");
+        search=new EditText(this);search.setSingleLine(true);search.setTextColor(FG);search.setHintTextColor(MUTED);search.setHint("ابحث في المحتوى");search.setPadding(dp(14),0,dp(14),0);search.setBackground(shape(CARD));root.addView(search,params(50,14));
+        search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int c){render();}public void afterTextChanged(android.text.Editable e){}});
+        heading=text("القنوات المباشرة",19,FG,true);root.addView(heading,params(34,18));
+        count=text("",12,MUTED,false);root.addView(count,params(24,0));
+        status=text("جارٍ الاتصال باللوحة...",13,MUTED,false);root.addView(status,params(48,4));
+        list=new LinearLayout(this);list.setOrientation(1);root.addView(list,params(-2,4));
     }
-
-    @Override protected void onStop() {
-        super.onStop();
-        releasePlayer();
+    private void addTab(LinearLayout nav,String label,String key){Button b=button(label,false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.setMargins(dp(3),0,dp(3),0);nav.addView(b,p);b.setOnClickListener(v->load(key));}
+    private String auth(){try{return "username="+URLEncoder.encode(USER,"UTF-8")+"&password="+URLEncoder.encode(PASS,"UTF-8");}catch(Exception e){return "";}}
+    private JSONArray requestArray(String path)throws Exception{
+        HttpURLConnection c=(HttpURLConnection)new URL(BASE+path).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(30000);c.setRequestProperty("Accept","application/json");c.setRequestProperty("User-Agent","Shasha-Android/2.0");
+        int code=c.getResponseCode();InputStream in=code>=200&&code<300?c.getInputStream():c.getErrorStream();ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);in.close();c.disconnect();String body=out.toString("UTF-8");if(code<200||code>=300)throw new IOException("HTTP "+code+" "+body);return new JSONArray(body);
     }
-
-    @Override protected void onSaveInstanceState(Bundle out) {
-        super.onSaveInstanceState(out);
-        if (selected != null) {
-            out.putString("video_uri", selected.toString());
-            out.putLong("position", player != null ? player.getCurrentPosition() : savedPosition);
-            out.putBoolean("playing", player != null && player.getPlayWhenReady());
+    private JSONObject requestObject(String path)throws Exception{
+        HttpURLConnection c=(HttpURLConnection)new URL(BASE+path).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(30000);int code=c.getResponseCode();InputStream in=code>=200&&code<300?c.getInputStream():c.getErrorStream();ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);in.close();c.disconnect();if(code<200||code>=300)throw new IOException("HTTP "+code);return new JSONObject(out.toString("UTF-8"));
+    }
+    private void load(String key){
+        section=key;showingEpisodes=false;heading.setText(key.equals("live")?"القنوات المباشرة":key.equals("movies")?"الأفلام":"المسلسلات");status.setText("جارٍ تحميل المحتوى من اللوحة...");list.removeAllViews();
+        io.execute(()->{try{
+            String action=key.equals("live")?"get_live_streams":key.equals("movies")?"get_vod_streams":"get_series";
+            String ca=key.equals("live")?"get_live_categories":key.equals("movies")?"get_vod_categories":"get_series_categories";
+            JSONArray cats=requestArray("/player_api.php?"+auth()+"&action="+ca);Map<String,String> names=new HashMap<>();for(int i=0;i<cats.length();i++){JSONObject c=cats.getJSONObject(i);names.put(c.optString("category_id"),c.optString("category_name"));}
+            JSONArray arr=requestArray("/player_api.php?"+auth()+"&action="+action);List<Item> result=new ArrayList<>();for(int i=0;i<arr.length();i++){Item x=new Item(arr.getJSONObject(i));x.category=names.getOrDefault(x.categoryId,x.category);result.add(x);}
+            runOnUiThread(()->{data.clear();data.addAll(result);render();status.setText(result.isEmpty()?"لا يوجد محتوى نشط في هذا القسم.":"تم الاتصال باللوحة بنجاح.");});
+        }catch(Exception e){runOnUiThread(()->status.setText("فشل الاتصال: "+friendly(e)));}});
+    }
+    private void render(){
+        if(list==null)return;list.removeAllViews();String q=search.getText().toString().trim().toLowerCase(Locale.ROOT);int shown=0;
+        for(Item x:new ArrayList<>(data)){if(!q.isEmpty()&&!x.name.toLowerCase(Locale.ROOT).contains(q))continue;shown++;
+            LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(dp(13),dp(9),dp(13),dp(9));card.setBackground(shape(CARD));list.addView(card,params(-2,8));
+            card.addView(text(x.name,16,FG,true));card.addView(text(x.category,12,MUTED,false));
+            Button play=button(section.equals("series")&&!showingEpisodes?"عرض الحلقات":"تشغيل  ▶",true);card.addView(play,params(44,8));
+            play.setOnClickListener(v->{if(section.equals("series")&&!showingEpisodes)episodes(x);else play(x);});
         }
+        count.setText("العناصر: "+shown);if(shown==0)list.addView(text("لا توجد نتائج.",14,MUTED,false));
     }
-
-    private void createPlayer() {
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-        player.addListener(new Player.Listener() {
-            @Override public void onPlaybackStateChanged(int state) {
-                if (state == Player.STATE_READY) status.setText("الفيديو جاهز للمشاهدة.");
-                if (state == Player.STATE_BUFFERING) status.setText("جارٍ التحميل...");
-            }
-            @Override public void onPlayerError(PlaybackException error) {
-                status.setText(describeError(error));
-            }
-        });
+    private void episodes(Item series){
+        status.setText("جارٍ تحميل الحلقات...");
+        io.execute(()->{try{
+            JSONObject obj=requestObject("/player_api.php?"+auth()+"&action=get_series_info&series_id="+URLEncoder.encode(series.id,"UTF-8"));
+            JSONObject seasons=obj.optJSONObject("episodes");List<Item> result=new ArrayList<>();if(seasons!=null){Iterator<String> it=seasons.keys();while(it.hasNext()){String season=it.next();JSONArray a=seasons.optJSONArray(season);if(a!=null)for(int i=0;i<a.length();i++){JSONObject j=a.getJSONObject(i);Item ep=new Item(j);ep.id=j.optString("id");ep.name="الموسم "+season+" - الحلقة "+j.optString("episode_num")+"  "+j.optString("title");result.add(ep);}}}
+            runOnUiThread(()->{data.clear();data.addAll(result);showingEpisodes=true;heading.setText(series.name+" - الحلقات");render();status.setText("اختر الحلقة للمشاهدة.");});
+        }catch(Exception e){runOnUiThread(()->status.setText("تعذّر تحميل الحلقات: "+friendly(e)));}});
     }
-
-    private void releasePlayer() {
-        if (player == null) return;
-        savedPosition = player.getCurrentPosition();
-        savedPlayWhenReady = player.getPlayWhenReady();
-        player.release();
-        player = null;
+    private void play(Item x){
+        String url=x.url;if(url.isEmpty()){String kind=section.equals("live")?"channel":section.equals("movies")?"movie":"episode";url=BASE+"/play.php?kind="+kind+"&id="+x.id+"&"+auth();}
+        if(!url.startsWith("https://")&&!url.startsWith("http://")){status.setText("رابط البث غير صالح.");return;}
+        try{if(player==null){player=new ExoPlayer.Builder(this).build();playerView.setPlayer(player);player.addListener(new Player.Listener(){@Override public void onPlaybackStateChanged(int s){if(s==Player.STATE_BUFFERING)status.setText("جارٍ تحميل البث...");if(s==Player.STATE_READY)status.setText("يعمل الآن.");}@Override public void onPlayerError(PlaybackException e){status.setText("خطأ تشغيل: "+e.getMessage());}});}
+            playerBox.setVisibility(View.VISIBLE);MediaItem.Builder item=new MediaItem.Builder().setUri(Uri.parse(url));String path=Uri.parse(url).getPath();if(path!=null&&path.toLowerCase(Locale.ROOT).endsWith(".m3u8"))item.setMimeType(MimeTypes.APPLICATION_M3U8);player.setMediaItem(item.build());player.prepare();player.play();status.setText("جارٍ بدء التشغيل...");
+        }catch(Exception e){status.setText("تعذّر تشغيل المحتوى: "+e.getMessage());}
     }
-
-    private void load(Uri uri, long position, boolean play) {
-        if (player == null) createPlayer();
-        selected = uri;
-        status.setText("جارٍ تحميل الفيديو...");
-        MediaItem.Builder item = new MediaItem.Builder().setUri(uri);
-        String path = uri.getPath();
-        if (path != null && path.toLowerCase(Locale.ROOT).endsWith(".m3u8")) {
-            item.setMimeType(MimeTypes.APPLICATION_M3U8);
-            status.setText("جارٍ تحميل بث HLS...");
-        }
-        player.setMediaItem(item.build());
-        player.seekTo(position);
-        player.setPlayWhenReady(play);
-        player.prepare();
-    }
-
-    private void openVideo(Uri uri, boolean play) {
-        savedPosition = 0;
-        savedPlayWhenReady = play;
-        load(uri, 0, play);
-    }
-
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
-
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(color);
-        background.setCornerRadius(dp(radius));
-        return background;
-    }
-
-    private TextView text(String value, int size, int color, boolean bold) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(color);
-        view.setGravity(Gravity.RIGHT);
-        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return view;
-    }
-
-    private LinearLayout.LayoutParams marginParams(int width, int height, int top) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
-        params.topMargin = dp(top);
-        return params;
-    }
-
-    private Button button(String label, boolean primary) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setTextSize(15);
-        button.setAllCaps(false);
-        button.setTextColor(primary ? BACKGROUND : TEXT);
-        button.setBackground(shape(primary ? ACCENT : PANEL, 12));
-        return button;
-    }
-
-    private void buildScreen() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BACKGROUND);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        root.setPadding(dp(20), dp(24), dp(20), dp(30));
-        scroll.addView(root);
-        setContentView(scroll);
-
-        root.addView(text("شاشة  •  نموذج أولي", 18, ACCENT, true));
-        root.addView(text("الفيلم يبدأ هنا.", 30, TEXT, true), marginParams(-1, -2, 22));
-        root.addView(text("رابط مرخّص، شاشة واحدة، وكل التركيز على المشهد.", 15, MUTED, false), marginParams(-1, -2, 4));
-
-        playerView = new PlayerView(this);
-        playerView.setBackgroundColor(Color.BLACK);
-        root.addView(playerView, marginParams(-1, dp(220), 24));
-
-        status = text("اختار فيديو تجريبي أو ملف أو رابط مباشر.", 14, MUTED, false);
-        root.addView(status, marginParams(-1, -2, 12));
-
-        Button demo = button("جرّب فيديو تجريبي", false);
-        root.addView(demo, marginParams(-1, dp(52), 20));
-        demo.setOnClickListener(v -> openVideo(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.demo), true));
-
-        Button choose = button("اختار فيديو من جهازك", false);
-        root.addView(choose, marginParams(-1, dp(52), 10));
-        choose.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("video/*");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            try { startActivityForResult(intent, PICK_VIDEO); }
-            catch (android.content.ActivityNotFoundException e) { status.setText("لا يوجد تطبيق متاح لاختيار ملف فيديو."); }
-        });
-
-        root.addView(text("رابط فيديو مباشر", 17, TEXT, true), marginParams(-1, -2, 26));
-        link = new EditText(this);
-        link.setSingleLine(true);
-        link.setTextDirection(View.TEXT_DIRECTION_LTR);
-        link.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        link.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        link.setHint("https://example.com/video.mp4 أو .m3u8");
-        link.setHintTextColor(MUTED);
-        link.setTextColor(TEXT);
-        link.setTextSize(15);
-        link.setPadding(dp(15), 0, dp(15), 0);
-        link.setBackground(shape(PANEL, 12));
-        root.addView(link, marginParams(-1, dp(52), 10));
-
-        Button play = button("تشغيل الرابط", true);
-        root.addView(play, marginParams(-1, dp(52), 10));
-        play.setOnClickListener(v -> playLink(link.getText().toString().trim()));
-
-        root.addView(text("آخر الروابط", 17, TEXT, true), marginParams(-1, -2, 26));
-        recentList = new LinearLayout(this);
-        recentList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(recentList, marginParams(-1, -2, 10));
-        refreshRecent();
-
-        root.addView(text("استخدم روابط عندك حق تشغيلها. يدعم الرابط HLS (.m3u8) عبر المشغّل. روابط الصفحات والمحتوى المحمي بـ DRM غير مدعومة.", 13, MUTED, false), marginParams(-1, -2, 24));
-    }
-
-    private String describeError(PlaybackException error) {
-        switch (error.errorCode) {
-            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED:
-            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT:
-                return "مقدرتش أوصل للرابط. اتأكد إن النت شغال والرابط صح.";
-            case PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS:
-                return "السيرفر رفض الطلب (خطأ في الرابط أو الصلاحيات). الرابط ممكن يكون منتهي أو محتاج تسجيل دخول.";
-            case PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND:
-                return "الملف مش موجود. ممكن يكون اتحذف أو اتنقل من مكانه.";
-            case PlaybackException.ERROR_CODE_IO_NO_PERMISSION:
-                return "التطبيق مش عنده صلاحية يقرأ الملف ده. اختار الملف من جديد.";
-            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED:
-            case PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED:
-                return "صيغة الفيديو مش مدعومة على الجهاز ده.";
-            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED:
-            case PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED:
-                return "ملف الفيديو تالف أو الرابط مش بيرجع فيديو صالح.";
-            case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED:
-                return "الجهاز مش قادر يفك تشفير الفيديو ده.";
-            case PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR:
-            case PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED:
-                return "الفيديو محمي بـ DRM، ومش مدعوم في النسخة دي.";
-            default:
-                return "حصل خطأ أثناء التشغيل. جرّب رابط تاني أو ملف تاني.";
-        }
-    }
-
-    private void playLink(String value) {
-        if (value.isEmpty()) {
-            status.setText("اكتب رابط فيديو الأول.");
-            return;
-        }
-        Uri uri = Uri.parse(value);
-        if ("http".equalsIgnoreCase(uri.getScheme())) {
-            status.setText("الرابط لازم يبدأ بـ https:// عشان يكون آمن.");
-            return;
-        }
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-            status.setText("اكتب رابط فيديو مباشر يبدأ بـ https://");
-            return;
-        }
-        rememberRecent(value);
-        openVideo(uri, true);
-    }
-
-    private List<String> recent() {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        List<String> list = new ArrayList<>();
-        for (String item : prefs.getString(RECENT_KEY, "").split("\n")) if (!item.isEmpty()) list.add(item);
-        return list;
-    }
-
-    private void rememberRecent(String url) {
-        List<String> list = recent();
-        list.remove(url);
-        list.add(0, url);
-        while (list.size() > 5) list.remove(list.size() - 1);
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(RECENT_KEY, TextUtils.join("\n", list)).apply();
-        refreshRecent();
-    }
-
-    private void refreshRecent() {
-        if (recentList == null) return;
-        recentList.removeAllViews();
-        List<String> list = recent();
-        if (list.isEmpty()) {
-            recentList.addView(text("ما فيش روابط محفوظة لسه.", 14, MUTED, false));
-            return;
-        }
-        for (String url : list) {
-            Button item = button(url, false);
-            item.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-            item.setSingleLine(true);
-            item.setEllipsize(TextUtils.TruncateAt.END);
-            recentList.addView(item, marginParams(-1, dp(48), 8));
-            item.setOnClickListener(v -> {
-                link.setText(url);
-                playLink(url);
-            });
-        }
-    }
-
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_VIDEO && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            Uri uri = data.getData();
-            try {
-                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException ignored) {
-                // Some providers only grant temporary access.
-            }
-            openVideo(uri, true);
-        }
-    }
+    private void stopPlayer(){if(player!=null){player.stop();player.release();player=null;}playerBox.setVisibility(View.GONE);}
+    private String friendly(Exception e){String m=e.getMessage()==null?"خطأ غير معروف":e.getMessage();if(m.contains("UnknownHost")||m.contains("resolve"))return"النطاق غير متاح أو لا يوجد اتصال إنترنت";if(m.contains("401"))return"بيانات تشغيل اللوحة غير صحيحة";if(m.contains("403"))return"الاستضافة رفضت الاتصال (403)";return m;}
+    @Override protected void onDestroy(){stopPlayer();io.shutdownNow();super.onDestroy();}
 }
